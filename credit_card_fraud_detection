@@ -1,0 +1,123 @@
+"""
+Credit Card Fraud Detection using Isolation Forest
+
+Dataset: unclean_customer_data.xlsx
+Columns : Customer_ID, Age, Annual_Income, Spending_Score,
+          Purchase_Frequency, Transaction_Amount
+
+Pipeline:
+    1. Load raw data
+    2. Data Preprocessing / Cleaning
+    3. Exploratory checks (post-cleaning)
+    4. Feature Scaling
+    5. Isolation Forest model (unsupervised anomaly/fraud detection)
+    6. Save cleaned data + fraud detection results
+"""
+
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import IsolationForest
+import os
+OUTPUT_DIR = "outputs"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+
+# 1. LOAD RAW DATA
+
+RAW_PATH = "unclean_customer_data.xlsx"
+df = pd.read_excel(RAW_PATH)
+
+print("Raw data shape:", df.shape)
+print(df.info())
+
+
+# 2. DATA PREPROCESSING / CLEANING
+
+
+# 2.1 Fix invalid values -> convert to NaN so they can be handled
+#     - Age = 0 is not a realistic customer age
+#     - Annual_Income cannot be negative
+#     - Transaction_Amount cannot be negative
+df.loc[df["Age"] <= 0, "Age"] = np.nan
+df.loc[df["Annual_Income"] < 0, "Annual_Income"] = np.nan
+df.loc[df["Transaction_Amount"] < 0, "Transaction_Amount"] = np.nan
+
+# 2.2 Handle missing values
+#     Age, Annual_Income, Transaction_Amount -> fill with column median
+#     (median is robust to outliers/skew, better than mean here)
+for col in ["Age", "Annual_Income", "Transaction_Amount"]:
+    median_val = df[col].median()
+    df[col] = df[col].fillna(median_val)
+
+# 2.3 Correct data types
+df["Age"] = df["Age"].astype(int)
+df["Customer_ID"] = df["Customer_ID"].astype(int)
+df["Purchase_Frequency"] = df["Purchase_Frequency"].astype(int)
+
+# 2.4 Remove exact duplicate rows (if any)
+df = df.drop_duplicates()
+
+# 2.5 Reset index after cleaning
+df = df.reset_index(drop=True)
+
+print("\nCleaned data shape:", df.shape)
+print("Missing values after cleaning:\n", df.isnull().sum())
+print("\nCleaned data summary:\n", df.describe())
+
+
+# 3. FEATURE SELECTION
+
+# Customer_ID is an identifier, not a predictive feature -> excluded
+features = ["Age", "Annual_Income", "Spending_Score",
+            "Purchase_Frequency", "Transaction_Amount"]
+X = df[features]
+
+
+# 4. FEATURE SCALING
+
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+
+# 5. ISOLATION FOREST MODEL (Fraud / Anomaly Detection)
+
+# contamination = expected proportion of fraudulent/anomalous records
+model = IsolationForest(
+    n_estimators=200,
+    contamination=0.05,
+    random_state=42
+)
+model.fit(X_scaled)
+
+# Predictions: -1 = anomaly (fraud), 1 = normal
+df["Anomaly_Score"] = model.decision_function(X_scaled)  # higher = more normal
+df["Prediction"] = model.predict(X_scaled)
+df["Is_Fraud"] = df["Prediction"].map({1: 0, -1: 1})      # 1 = Fraud, 0 = Normal
+
+df.drop(columns=["Prediction"], inplace=True)
+
+
+# 6. RESULTS
+
+fraud_count = df["Is_Fraud"].sum()
+print(f"\nTotal records          : {len(df)}")
+print(f"Detected fraud records : {fraud_count} ({fraud_count/len(df)*100:.2f}%)")
+
+print("\nTop 10 most suspicious transactions:")
+print(df.sort_values("Anomaly_Score").head(10)[
+    ["Customer_ID", "Age", "Annual_Income", "Spending_Score",
+     "Purchase_Frequency", "Transaction_Amount", "Anomaly_Score", "Is_Fraud"]
+])
+
+
+# 7. SAVE OUTPUTS
+
+df.to_csv(os.path.join(OUTPUT_DIR, "cleaned_customer_data_with_fraud_labels.csv"), index=False)
+df[df["Is_Fraud"] == 1].to_csv(os.path.join(OUTPUT_DIR, "detected_fraud_transactions.csv"), index=False)
+
+print("\nFiles saved:")
+print(f" - {os.path.join(OUTPUT_DIR, 'cleaned_customer_data_with_fraud_labels.csv')}")
+print(f" - {os.path.join(OUTPUT_DIR, 'detected_fraud_transactions.csv')}")
+print(f" - {os.path.join(OUTPUT_DIR, 'cleaned.csv')}")
+df.to_csv(os.path.join(OUTPUT_DIR, "cleaned.csv"), index=False)

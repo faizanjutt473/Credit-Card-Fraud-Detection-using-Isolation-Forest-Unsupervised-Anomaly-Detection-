@@ -1,0 +1,7 @@
+pandas
+numpy
+scikit-learn
+openpyxl
+
+
+This project requires Python 3.8+ along with pandas and numpy for data handling, scikit-learn for the Isolation Forest model, and openpyxl for reading Excel (.xlsx) files.
